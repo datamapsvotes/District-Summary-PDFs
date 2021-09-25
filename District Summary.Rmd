@@ -1,0 +1,235 @@
+---
+output: pdf_document
+header-includes:
+    - \usepackage[labelformat=empty]{caption}
+    - \usepackage{booktabs}
+    - \usepackage{longtable}
+    - \usepackage{array}
+    - \usepackage{multirow}
+    - \usepackage{wrapfig}
+    - \usepackage{float}
+    - \usepackage{colortbl}
+    - \usepackage{pdflscape}
+    - \usepackage{tabu}
+    - \usepackage{threeparttable}
+    - \usepackage{threeparttablex}
+    - \usepackage[normalem]{ulem}
+    - \usepackage{makecell}
+    - \usepackage{xcolor}
+    - \usepackage{dcolumn}
+    - \pagenumbering{gobble}
+params:
+  district: "Indi"
+  election_or_redist_object: "federal_election"
+  result_name: "Two Candidate Preferred"
+  single_group_code: !r NA
+  breaks: !r seq(0.5,0.95,0.05)
+  from_electorate: "Division"
+  to_electorate_string: "the Division of {{Electorate}}"
+---
+
+```{r create_rs_object, cache=TRUE, cache.extra = file.info("Generalising Redivision Analysis.R"), fig.path='summary_files/pdf/', include=FALSE}
+source("Functions.R")
+
+## Function specifically for federal elections
+
+division_nm_format <- function(x){
+  name <- str_to_title(x)
+  if (name %in% c("Mcewen", "Mcmahon","Mcpherson","O'connor")){
+    name <- switch(name, "Mcewen" = "McEwen", "Mcmahon" = "McMahon", "Mcpherson" = "McPherson", "O'connor" = "O'Connor")
+  }
+  name
+}
+
+## Boundaries
+
+federal_boundaries <- st_read("data/federal election 2019/national-esri-fe2019/COM_ELB_region.shp") %>%
+  st_zm() %>%
+  rowwise() %>%
+  mutate(Elect_div = division_nm_format(Elect_div)) %>%
+  ungroup() %>%
+  rs_boundary_set("Elect_div",7845)
+
+## Polling Places
+
+reformatted_non_ordinary_votes <- read.csv("data/federal election 2019/HouseTppByDivisionByVoteTypeDownload-24310.csv", skip = 1) %>% 
+  select(-c(PartyAb,TotalVotes)) %>%
+  pivot_longer(Liberal.National.Coalition.OrdinaryVotes:Australian.Labor.Party.DeclarationPrePollPercentage, values_to = "votes") %>%
+  separate(name,c("group_code","vote_type"),sep = "\\.(?=\\w+$)") %>%
+  separate(vote_type,c("PollingPlaceNm","aggregate_type"),sep = "(?<=[a-z])(?=[A-Z][a-z]+$)")%>%
+  filter(aggregate_type == "Votes", PollingPlaceNm != "Ordinary") %>%
+  select(-aggregate_type) %>%
+  rowwise() %>%
+  mutate(PollingPlaceID = paste(PollingPlaceNm,DivisionID, sep = "-"), group_code = switch(group_code, `Liberal.National.Coalition` = "COA", `Australian.Labor.Party` = "ALP")) %>%
+  ungroup() %>%
+  mutate(PollingPlaceTypeID = NA,PremisesNm = NA, PremisesAddress1 = NA, PremisesAddress2 = NA, PremisesAddress3 = NA, PremisesSuburb = NA, PremisesStateAb = NA, PremisesPostCode = NA,Latitude = NA, Longitude = NA) %>%
+  rename(State = StateAb)
+
+non_ordinary_polling_places <- reformatted_non_ordinary_votes %>%
+  group_by(State, DivisionID, DivisionNm, PollingPlaceID, PollingPlaceTypeID, PollingPlaceNm, PremisesNm, PremisesAddress1, PremisesAddress2, PremisesAddress3, PremisesSuburb, PremisesStateAb, PremisesPostCode, Latitude, Longitude) %>%
+  summarise(.groups = "drop")
+
+ordinary_polling_places <- read.csv("data/federal election 2019/GeneralPollingPlacesDownload-24310.csv", skip = 1)
+
+federal_polling_places <- rbind(ordinary_polling_places,non_ordinary_polling_places) %>%
+  rowwise() %>%
+  mutate(Latitude = ifelse(PollingPlaceTypeID != 1,NA,Latitude), Longitude = ifelse(PollingPlaceTypeID != 1,NA,Longitude), DivisionNm = division_nm_format(DivisionNm)) %>%
+  rs_polling_places("PollingPlaceID","DivisionNm","Longitude","Latitude")
+
+## Results
+
+ordinary_TPP <- read.csv("data/federal election 2019/HouseTppByPollingPlaceDownload-24310.csv", skip = 1) %>%
+  select(-c(Liberal.National.Coalition.Percentage,Australian.Labor.Party.Percentage,TotalVotes,Swing,StateAb,DivisionID,PollingPlace,DivisionNm)) %>%
+  rename("ALP" = Australian.Labor.Party.Votes, "COA" = Liberal.National.Coalition.Votes) %>%
+  pivot_longer(ALP:COA,names_to = "group_code",values_to = "votes")
+non_ordinary_TPP <- reformatted_non_ordinary_votes %>%
+  select(PollingPlaceID,group_code,votes)
+federal_TPP <- rbind(ordinary_TPP,non_ordinary_TPP)
+
+federal_TCP_ordinary_polling_place <- read.csv("data/federal election 2019/HouseTcpByCandidateByPollingPlaceDownload-24310.csv", skip = 1) %>%
+  rename("votes" = OrdinaryVotes) %>%
+  select(PollingPlaceID,PartyAb,votes) 
+federal_TCP_non_ordinary_polling_place <- read.csv("data/federal election 2019/HouseTcpByCandidateByVoteTypeDownload-24310.csv", skip = 1) %>%
+  pivot_longer(cols = AbsentVotes:PostalVotes, names_to = "type", values_to = "votes") %>%
+  rowwise() %>% mutate(PollingPlaceID = str_remove(type,"Votes") %>% str_replace("PrePoll","DeclarationPrePoll") %>% paste(DivisionID,sep = "-")) %>% ungroup() %>%
+  select(PollingPlaceID, PartyAb, votes)
+federal_TCP_combined <- rbind(federal_TCP_ordinary_polling_place,federal_TCP_non_ordinary_polling_place)
+
+federal_ordinary_primary_vote <- read.csv("data/federal election 2019/HouseStateFirstPrefsByPollingPlaceDownload-24310-VIC.csv", skip = 1) %>%
+  filter(BallotPosition != 999) %>%
+  select(PollingPlaceID, PartyAb, OrdinaryVotes) %>%
+  rename("votes" = OrdinaryVotes)
+federal_non_ordinary_primary_votes <- read.csv("data/federal election 2019/HouseFirstPrefsByCandidateByVoteTypeDownload-24310.csv", skip = 1) %>%
+  filter(BallotPosition != 999) %>%
+  pivot_longer(cols = AbsentVotes:PostalVotes, names_to = "type", values_to = "votes") %>%
+  rowwise() %>% mutate(PollingPlaceID = str_remove(type,"Votes") %>% str_replace("PrePoll","DeclarationPrePoll") %>% paste(DivisionID,sep = "-")) %>% ungroup() %>%
+  select(PollingPlaceID, PartyAb, votes)
+federal_primary_combined <- rbind(federal_ordinary_primary_vote,federal_non_ordinary_primary_votes)
+
+federal_results <- list(rs_election_results("Two Party Preferred",federal_TPP,"PollingPlaceID","group_code"),
+                        rs_election_results("Two Candidate Preferred", federal_TCP_combined, pp_id = "PollingPlaceID", group_code =  "PartyAb",votes = "votes"),
+                        rs_election_results("Primary", federal_primary_combined, pp_id = "PollingPlaceID", group_code = "PartyAb", votes = "votes"))
+
+## Remaining setup
+federal_election <- rs_election("2019 Federal Election", federal_boundaries, federal_polling_places, federal_results, 7845)
+```
+
+```{r setup, include=FALSE}
+source("Functions.R")
+
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+
+library(sf)
+library(readxl)
+library(tidyverse)
+library(ggvoronoi)
+library(V8)
+library(patchwork)
+library(kableExtra)
+
+restack <- function(df){
+  list <- as.list(df[[2]])
+  names(list) <- df[[1]]
+  list
+}
+
+eval(call("<-", as.name("election_or_redist_object"), as.name(params$election_or_redist_object)))
+federal_party_colors_2 <- data.frame(a = c("ALP","LP","NP","IND","GRN","CLP","LNP","KAP","ON","XEN","COA"), b = c("#DE3533","#0047AB","#006644","#800080","#00A651","#F8981D","#0047AB","#B50204","#F36C21","#FF6300","#0047AB"))
+federal_polcolpal_2 <- rs_polcolpal_create(federal_party_colors_2,params$breaks)
+```
+
+```{r create_sf, cache=TRUE,cache.extra = file.info("Generalising Redivision Analysis.R"), cache.resultname = params$result_name, cache.rsobject = election_or_redist_object, cache.polcolpal = federal_polcolpal_2, cache.singlegroupcode = params$single_group_code, fig.path='summary_files2/pdf/', include=FALSE}
+sf <- rs_election_as_sf(election_or_redist_object, params$result_name, federal_polcolpal_2, mode = ifelse(is.na(params$single_group_code),"plurality","single group"), single_group_code = ifelse(is.na(params$single_group_code),NA,params$single_group_code))
+result_number <- match(attr(sf,"result_name"),sapply(election_or_redist_object$adj_results,function(x){x$name}))
+```
+
+
+## `r params$district`
+### `r federal_election$name` - `r attr(sf, "result_name")` `r ifelse(is.na(params$single_group_code),"",paste0(" - ",params$single_group_code))`
+
+```{r map_and_bar_chart, fig.width=3.2, fig.asp=1.4, out.width="50%"}
+if (all(c("to_district","from_district") %in% names(sf))){
+  mode <- "analysis"
+  from_dist_col <- "from_district"
+  dist_col <- "to_district"
+} else {
+  mode <- "display"
+  from_dist_col <- "district"
+  dist_col <- "district"
+}
+
+district_voronoi <- filter(sf, !!as.name(dist_col) == params$district)
+  rs_plot(district_voronoi)
+  
+vote_share_by_group <- summary(election_or_redist_object)[[result_number]]$results %>%
+  filter(!!as.name(dist_col) == params$district) %>%
+  group_by(!!as.name(dist_col)) %>%
+  mutate(vote_pct = votes/sum(votes)) %>%
+  rename("Party" = group_code) %>%
+  filter(Party %in% federal_party_colors_2$a) %>%
+  arrange(desc(vote_pct))
+
+parties <- vote_share_by_group$Party
+
+
+
+ggplot(vote_share_by_group, aes(x=!!as.name(dist_col),y=vote_pct,fill = factor(Party, levels = parties))) +
+  geom_col(position = "dodge") +
+  scale_fill_manual(values = restack(federal_party_colors_2), breaks = parties, limits = parties) +
+  scale_y_continuous(expand = c(0,0)) + 
+  geom_text(aes(label = paste0(round(vote_pct*100, 2),"%")), position = position_dodge(0.9), color = "white",vjust = 2, fontface = "bold", size = 5*2/length(parties)) +
+  labs(y = "Vote %", fill = "Party") +
+  theme(legend.position = "bottom",
+        panel.grid = element_blank(),
+        axis.title.x = element_blank(),
+        panel.background = element_blank())
+```
+
+```{r create_kable}
+palette_as_vector <- function(x,list){
+   names <- names(list)
+   sapply(x, function(y){
+      list[[match(y,names)]]
+    })
+}
+getKableData <- function(rs_election, rs_election_as_sf, result_number, pp_name = "pp_name", from_district_col = "district", rename_district_col = "District"){
+  results <- rs_election$adj_results[[result_number]]$results %>%
+    group_by(pp_id) %>%
+    mutate(electors = sum(adj_votes)) %>%
+    ungroup() %>%
+    rowwise() %>%
+    mutate(adj_vote_pct = paste0(round(adj_vote_pct*100,2),"%")) %>%
+    pivot_wider(id_cols = c(pp_id, electors), names_from = group_code, values_from = adj_vote_pct, values_fn = list)
+  polling_booths <- rs_election_as_sf %>% 
+    st_drop_geometry() %>%
+    select(pp_id,all_of(from_district_col),all_of(pp_name),col_code, any_of("adj_new_area_pct"))
+  join <- left_join(polling_booths, results, by = "pp_id") %>%
+    rename("Name" = all_of(pp_name), "Electors" = electors) %>%
+    rename_with(.cols = all_of(from_district_col), .fn = function(x){rename_district_col})
+  if ("adj_new_area_pct" %in% colnames(join)){
+    join <- relocate(join, adj_new_area_pct, .after = last_col()) %>%
+      rowwise() %>%
+      mutate(Electors = Electors*adj_new_area_pct, adj_new_area_pct = paste0(round(adj_new_area_pct*100),"%")) %>%
+      ungroup() %>%
+      rename("% of booth" = adj_new_area_pct)
+  }
+  join %>%
+    arrange(desc(Electors)) %>%
+    relocate(Electors, .after = last_col()) %>%
+    rowwise() %>%
+    mutate(Electors = round(Electors)) %>%
+    ungroup() %>%
+    select(where(~sum(!is.na(.x)) > 0))%>%
+    select(where(~sum(!is.null(unlist(.x))) > 0))
+}
+kableData <- getKableData(election_or_redist_object, district_voronoi, result_number = result_number, pp_name = "PollingPlaceNm", from_district_col = from_dist_col, rename_district_col = params$from_electorate) %>%
+  head(n=20)
+col_codes <- palette_as_vector(kableData$col_code,attr(sf,"palette")$ggplot_scale)
+
+select(kableData, -c(col_code, pp_id)) %>%
+  kable(booktabs = TRUE, linesep = "", format = "latex", caption = paste0("Largest ",nrow(kableData)," booths for ",str_replace(params$to_electorate_string, "\\{\\{Electorate\\}\\}", params$district))) %>%
+  add_header_above(c("Booth" = 2)) %>%
+  column_spec(2, background = col_codes) %>%
+  kable_styling(position = "center", latex_options = "HOLD_position", font_size = 8)
+```
+ 
