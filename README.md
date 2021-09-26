@@ -7,7 +7,7 @@ Initially, this project was intended to list margins for redivisions in the stat
 Thus, this project allows for a nice summary of the redivisions, by whatever result that can be broken down by polling booth. It also allows for a simple polling booth breakdown of election results so people can get an idea of how geography influences the outcome in a given electorate.
 
 ## What does this R project contain?
-This R project contains 2 R scripts and an R markdown document. It also contains data to analyse the 2019 Australian Federal Election, as well as the results of that analysis which can be found in 'joined.pdf'
+This R project contains 2 R scripts and an R markdown document. It also contains data to analyse the 2019 Australian Federal Election, as well as the results of that analysis which can be found in `joined.pdf`
 
 `Functions.R` is simply listing the functions used in a way similar to a package.
 `District Summary.Rmd` compiles the `rs_election` object with data, and compiles the graphics which appear on the PDF.
