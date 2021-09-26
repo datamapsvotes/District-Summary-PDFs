@@ -2,7 +2,7 @@
 An R project to create a summary of polling booth results for Australian elections, with pdf summaries for each district.
 
 ## So, what is the point of this?
-Initially, this project was intended to list margins for redivisions in the state of Victoria. Combined with a seperate mapping project, it since turned into a project to be able to map the political implications of these new boundaries as well.
+Initially, this project was intended to list margins for redivisions in the state of Victoria. Combined with a seperate mapping project, it has since turned into a project to be able to map the political implications of these new boundaries as well.
 
 Thus, this project allows for a nice summary of the redivisions, by whatever result that can be broken down by polling booth. It also allows for a simple polling booth breakdown of election results so people can get an idea of how geography influences the outcome in a given electorate.
 
