@@ -28,7 +28,7 @@ params:
   to_electorate_string: "the Division of {{Electorate}}"
 ---
 
-```{r create_rs_object, cache=TRUE, cache.extra = file.info("Generalising Redivision Analysis.R"), fig.path='summary_files/pdf/', include=FALSE}
+```{r create_rs_object, cache=TRUE, cache.extra = file.info("Functions.R"), fig.path='summary_files/pdf/', include=FALSE}
 source("Functions.R")
 
 ## Function specifically for federal elections
@@ -138,7 +138,7 @@ federal_party_colors_2 <- data.frame(a = c("ALP","LP","NP","IND","GRN","CLP","LN
 federal_polcolpal_2 <- rs_polcolpal_create(federal_party_colors_2,params$breaks)
 ```
 
-```{r create_sf, cache=TRUE,cache.extra = file.info("Generalising Redivision Analysis.R"), cache.resultname = params$result_name, cache.rsobject = election_or_redist_object, cache.polcolpal = federal_polcolpal_2, cache.singlegroupcode = params$single_group_code, fig.path='summary_files2/pdf/', include=FALSE}
+```{r create_sf, cache=TRUE,cache.extra = file.info("Functions.R"), cache.resultname = params$result_name, cache.rsobject = election_or_redist_object, cache.polcolpal = federal_polcolpal_2, cache.singlegroupcode = params$single_group_code, fig.path='summary_files2/pdf/', include=FALSE}
 sf <- rs_election_as_sf(election_or_redist_object, params$result_name, federal_polcolpal_2, mode = ifelse(is.na(params$single_group_code),"plurality","single group"), single_group_code = ifelse(is.na(params$single_group_code),NA,params$single_group_code))
 result_number <- match(attr(sf,"result_name"),sapply(election_or_redist_object$adj_results,function(x){x$name}))
 ```
